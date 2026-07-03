@@ -213,6 +213,16 @@ const SKINS = [
     verts: [[20, 0], [8, -6], [-4, -11], [-12, -6], [-8, 0], [-12, 6], [-4, 11], [8, 6]],
     nose: 21,
   },
+  {
+    id: 'morada',
+    name: 'MORADA',
+    shipColor: '#9d3bff',
+    flameColor: 'rgba(200, 120, 255, 0.9)',
+    // el doble de grande que la clásica (verts * 2)
+    verts: [[40, 0], [-24, -18], [-14, 0], [-24, 18]],
+    nose: 42,
+    doublePoints: true,
+  },
 ];
 
 const SKIN_KEY = 'asteroids.skin';
@@ -241,7 +251,13 @@ class Ship {
     this.angle  = -Math.PI / 2;
     this.vx     = 0;
     this.vy     = 0;
-    this.radius = 12;
+    const skin  = SKINS[currentSkin];
+    let maxR = 0;
+    for (const v of skin.verts) {
+      const r = Math.hypot(v[0], v[1]);
+      if (r > maxR) maxR = r;
+    }
+    this.radius = maxR > 0 ? Math.max(8, maxR * 0.6) : 12;
     this.thrusting     = false;
     this.invincible    = 3;
     this.shootCooldown = 0;
@@ -587,6 +603,13 @@ function update(dt) {
   if (pressed('KeyC')) {
     currentSkin = (currentSkin + 1) % SKINS.length;
     saveSkin();
+    const skin = SKINS[currentSkin];
+    let maxR = 0;
+    for (const v of skin.verts) {
+      const r = Math.hypot(v[0], v[1]);
+      if (r > maxR) maxR = r;
+    }
+    ship.radius = maxR > 0 ? Math.max(8, maxR * 0.6) : 12;
     skinToast = 1.6;
   }
   if (skinToast > 0) skinToast -= dt;
@@ -641,7 +664,8 @@ function update(dt) {
       if (!a.dead && !b.dead && dist(b, a) < a.radius) {
         b.dead = true;
         a.dead = true;
-        score += a.points ?? POINTS[a.size];
+        const base = a.points ?? POINTS[a.size];
+        score += SKINS[currentSkin].doublePoints ? base * 2 : base;
         explode(a.x, a.y, a.special ? 18 : a.size * 5);
         newAsteroids.push(...a.split());
 if (powerups.length === 0 && Math.random() < 0.12) {
