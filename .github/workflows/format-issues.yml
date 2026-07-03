@@ -1,0 +1,67 @@
+name: Formatear issue nuevo
+
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  issues: write
+  contents: read
+
+concurrency:
+  group: format-issue-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  format:
+    name: Formatear y etiquetar
+    runs-on: ubuntu-latest
+    if: github.event.action == 'opened'
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      REPO: ${{ github.repository }}
+      AUTHOR: ${{ github.event.issue.user.login }}
+      CREATED_ISO: ${{ github.event.issue.created_at }}
+      NUMBER: ${{ github.event.issue.number }}
+      ORIGINAL_BODY: ${{ toJSON(github.event.issue.body) }}
+    steps:
+      - name: Crear label needs-triage si no existe
+        run: |
+          gh label create "needs-triage" \
+            --description "Pendiente de revisión inicial" \
+            --color "BFD4F2" \
+            --repo "$REPO" || true
+
+      - name: Formatear cuerpo del issue
+        run: |
+          # Decodificar el body original (llega como JSON, puede ser null)
+          ORIGINAL=$(printf '%s' "$ORIGINAL_BODY" | jq -r 'if . == null then "" else . end')
+
+          # Formatear fecha a YYYY-MM-DD HH:MM UTC
+          CREATED_FMT=$(date -u -d "$CREATED_ISO" '+%Y-%m-%d %H:%M' 2>/dev/null || date -u -d "$CREATED_ISO" '+%Y-%m-%d %H:%M')
+
+          # Construir el nuevo cuerpo
+          {
+            printf '### 📋 Datos del Issue\n\n'
+            printf -- '- **Repositorio**: `%s`\n' "$REPO"
+            printf -- '- **Autor**: @%s\n' "$AUTHOR"
+            printf -- '- **Fecha de creación**: %s UTC\n' "$CREATED_FMT"
+            printf '\n---\n\n'
+            printf '### 📝 Reporte Original\n\n'
+            if [ -z "$ORIGINAL" ]; then
+              printf '_(sin descripción)_\n'
+            else
+              printf '%s\n' "$ORIGINAL"
+            fi
+          } > /tmp/new_body.md
+
+          # Aplicar el nuevo cuerpo
+          gh issue edit "$NUMBER" \
+            --repo "$REPO" \
+            --body-file /tmp/new_body.md
+
+      - name: Asignar label needs-triage
+        run: |
+          gh issue edit "$NUMBER" \
+            --repo "$REPO" \
+            --add-label "needs-triage"
