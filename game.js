@@ -246,6 +246,8 @@ class Ship {
     this.invincible    = 3;
     this.shootCooldown = 0;
     this.dead          = false;
+    this.shield        = 0;
+    this.shieldFlash   = 0;
   }
 
   update(dt) {
@@ -253,7 +255,9 @@ class Ship {
     if (this.invincible    > 0) this.invincible    -= dt;
     if (this.shootCooldown > 0) this.shootCooldown -= dt;
     if (this.boost         > 0) this.boost         -= dt;
-    if (this.triple        > 0) this.triple        -= dt;
+if (this.triple        > 0) this.triple        -= dt;
+    if (this.shield        > 0) this.shield        -= dt;
+    if (this.shieldFlash   > 0) this.shieldFlash   -= dt;
 
     const ROT   = 3.5;   // rad/s
     const DRAG   = 0.987;
@@ -324,6 +328,20 @@ class Ship {
     }
 
     ctx.restore();
+
+    // Escudo: anillo envolvente alrededor de la nave
+    if (this.shield > 0) {
+      const r = this.radius + 8 + Math.sin(performance.now() / 120) * 1.5;
+      const flash = this.shieldFlash > 0 ? 1 : 0;
+      ctx.save();
+      ctx.globalAlpha = 0.5 + (this.shieldFlash > 0 ? 0.5 : 0);
+      ctx.strokeStyle = flash > 0 ? '#fff' : '#9d7bff';
+      ctx.lineWidth   = 2 + flash * 2;
+      ctx.beginPath();
+      ctx.arc(this.x, this.y, r, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
   }
 }
 
@@ -361,8 +379,8 @@ class Particle {
 
 // ── PowerUp (Velocidad) ───────────────────────────────────────────────────────
 class PowerUp {
-  constructor(x, y) {
-    this.kind = 'boost';
+  constructor(x, y, type = 'boost') {
+    this.type = type;
     this.x = x;
     this.y = y;
     const angle = rand(0, Math.PI * 2);
@@ -387,80 +405,75 @@ class PowerUp {
     ctx.translate(this.x, this.y);
     ctx.rotate(this.rot);
 
-    // Diamante cyan pulsante
-    ctx.strokeStyle = '#00dcff';
-    ctx.lineWidth   = 2;
-    ctx.lineJoin    = 'round';
-    ctx.beginPath();
-    ctx.moveTo(0, -this.radius * pulse);
-    ctx.lineTo(this.radius * pulse, 0);
-    ctx.lineTo(0, this.radius * pulse);
-    ctx.lineTo(-this.radius * pulse, 0);
-    ctx.closePath();
-    ctx.stroke();
+switch (this.type) {
+      case 'boost': {
+        // Diamante cyan pulsante con rayo
+        ctx.strokeStyle = '#00dcff';
+        ctx.lineWidth   = 2;
+        ctx.lineJoin    = 'round';
+        ctx.beginPath();
+        ctx.moveTo(0, -this.radius * pulse);
+        ctx.lineTo(this.radius * pulse, 0);
+        ctx.lineTo(0, this.radius * pulse);
+        ctx.lineTo(-this.radius * pulse, 0);
+        ctx.closePath();
+        ctx.stroke();
 
-    // Rayo blanco interior
-    ctx.strokeStyle = '#fff';
-    ctx.lineWidth   = 1.5;
-    ctx.beginPath();
-    ctx.moveTo(-4, -8);
-    ctx.lineTo(0, 0);
-    ctx.lineTo(-2, 0);
-    ctx.lineTo(4, 8);
-    ctx.stroke();
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth   = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(-4, -8);
+        ctx.lineTo(0, 0);
+        ctx.lineTo(-2, 0);
+        ctx.lineTo(4, 8);
+        ctx.stroke();
+        break;
+      }
+      case 'triple': {
+        // Diamante magenta pulsante con tres líneas paralelas
+        ctx.strokeStyle = '#ff5ed4';
+        ctx.lineWidth   = 2;
+        ctx.lineJoin    = 'round';
+        ctx.beginPath();
+        ctx.moveTo(0, -this.radius * pulse);
+        ctx.lineTo(this.radius * pulse, 0);
+        ctx.lineTo(0, this.radius * pulse);
+        ctx.lineTo(-this.radius * pulse, 0);
+        ctx.closePath();
+        ctx.stroke();
 
-    ctx.restore();
-  }
-}
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth   = 1.5;
+        for (const off of [-4, 0, 4]) {
+          ctx.beginPath();
+          ctx.moveTo(-5, off);
+          ctx.lineTo( 5, off);
+          ctx.stroke();
+        }
+        break;
+      }
+      case 'shield': {
+        // Anillo violeta con símbolo de escudo interior
+        ctx.strokeStyle = '#9d7bff';
+        ctx.lineWidth   = 2;
+        ctx.beginPath();
+        ctx.arc(0, 0, this.radius * pulse, 0, Math.PI * 2);
+        ctx.stroke();
 
-// ── PowerUp (Triple Shot) ─────────────────────────────────────────────────────
-class TriplePowerUp {
-  constructor(x, y) {
-    this.kind = 'triple';
-    this.x = x;
-    this.y = y;
-    const angle = rand(0, Math.PI * 2);
-    const speed = rand(25, 50);
-    this.vx = Math.cos(angle) * speed;
-    this.vy = Math.sin(angle) * speed;
-    this.radius    = 11;
-    this.rot       = 0;
-    this.rotSpeed  = rand(-1.5, 1.5);
-    this.dead      = false;
-  }
-
-  update(dt) {
-    this.x   = wrap(this.x + this.vx * dt, W);
-    this.y   = wrap(this.y + this.vy * dt, H);
-    this.rot += this.rotSpeed * dt;
-  }
-
-  draw() {
-    const pulse = 1 + Math.sin(performance.now() / 150) * 0.15;
-    ctx.save();
-    ctx.translate(this.x, this.y);
-    ctx.rotate(this.rot);
-
-    // Diamante magenta pulsante
-    ctx.strokeStyle = '#ff5ed4';
-    ctx.lineWidth   = 2;
-    ctx.lineJoin    = 'round';
-    ctx.beginPath();
-    ctx.moveTo(0, -this.radius * pulse);
-    ctx.lineTo(this.radius * pulse, 0);
-    ctx.lineTo(0, this.radius * pulse);
-    ctx.lineTo(-this.radius * pulse, 0);
-    ctx.closePath();
-    ctx.stroke();
-
-    // Tres líneas paralelas interiores (identidad del triple shot)
-    ctx.strokeStyle = '#fff';
-    ctx.lineWidth   = 1.5;
-    for (const off of [-4, 0, 4]) {
-      ctx.beginPath();
-      ctx.moveTo(-5, off);
-      ctx.lineTo( 5, off);
-      ctx.stroke();
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth   = 1.5;
+        ctx.lineJoin    = 'round';
+        ctx.beginPath();
+        ctx.moveTo(0, -7);
+        ctx.lineTo(6, -3);
+        ctx.lineTo(6,  3);
+        ctx.lineTo(0,  7);
+        ctx.lineTo(-6, 3);
+        ctx.lineTo(-6, -3);
+        ctx.closePath();
+        ctx.stroke();
+        break;
+      }
     }
 
     ctx.restore();
@@ -602,12 +615,15 @@ function update(dt) {
   if (prevTriple > 0 && ship.triple <= 0)
     explode(ship.x, ship.y, 8);
 
-  // Nave vs power-up (boost y triple son independientes y apilables)
+// Nave vs power-up (boost, triple y shield apilables e independientes)
   for (const p of powerups) {
     if (p.dead || dist(ship, p) >= ship.radius + p.radius) continue;
-    if (p.kind === 'triple') {
+    if (p.type === 'triple') {
       if (ship.triple > 0) continue;       // no re-apilar el mismo
       ship.triple = 5;
+    } else if (p.type === 'shield') {
+      if (ship.shield > 0) continue;
+      ship.shield = 5;
     } else {
       if (ship.boost > 0) continue;
       ship.boost = 5;
@@ -628,10 +644,9 @@ function update(dt) {
         score += a.points ?? POINTS[a.size];
         explode(a.x, a.y, a.special ? 18 : a.size * 5);
         newAsteroids.push(...a.split());
-        if (powerups.length === 0 && Math.random() < 0.12) {
-          powerups.push(Math.random() < 0.5
-            ? new PowerUp(a.x, a.y)
-            : new TriplePowerUp(a.x, a.y));
+if (powerups.length === 0 && Math.random() < 0.12) {
+          const kind = ['boost', 'triple', 'shield'][Math.floor(Math.random() * 3)];
+          powerups.push(new PowerUp(a.x, a.y, kind));
         }
       }
     }
@@ -643,10 +658,17 @@ function update(dt) {
   if (ship.invincible <= 0) {
     for (const a of asteroids) {
       if (dist(ship, a) < ship.radius + a.radius * 0.82) {
-        killShip();
+        if (ship.shield > 0) {
+          a.dead = true;
+          explode(a.x, a.y, a.size * 5);
+          ship.shieldFlash = 0.15;
+        } else {
+          killShip();
+        }
         break;
       }
     }
+    asteroids = asteroids.filter(a => !a.dead);
   }
 
   // Nivel completado
@@ -700,12 +722,24 @@ function drawHUD() {
     ctx.strokeRect(bx - 0.5, by - 0.5, BAR_W + 1, BAR_H + 1);
   }
 
-  // Barra de Triple Shot
+// Barra de Triple Shot
   if (ship.triple > 0) {
     const BAR_W = 100, BAR_H = 6;
-    const bx = W / 2 - BAR_W / 2, by = 50;
+    const bx = W / 2 - BAR_W / 2, by = 48;
     const fill = (ship.triple / 5) * BAR_W;
     ctx.fillStyle   = '#ff5ed4';
+    ctx.fillRect(bx, by, fill, BAR_H);
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth   = 1;
+    ctx.strokeRect(bx - 0.5, by - 0.5, BAR_W + 1, BAR_H + 1);
+  }
+
+  // Barra de Escudo
+  if (ship.shield > 0) {
+    const BAR_W = 100, BAR_H = 6;
+    const bx = W / 2 - BAR_W / 2, by = 60;
+    const fill = (ship.shield / 5) * BAR_W;
+    ctx.fillStyle   = '#9d7bff';
     ctx.fillRect(bx, by, fill, BAR_H);
     ctx.strokeStyle = '#fff';
     ctx.lineWidth   = 1;
