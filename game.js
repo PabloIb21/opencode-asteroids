@@ -231,7 +231,8 @@ function saveSkin() {
 
 // ── Ship ──────────────────────────────────────────────────────────────────────
 class Ship {
-  boost = 0;
+  boost  = 0;
+  triple = 0;
   constructor() { this.reset(); }
 
   reset() {
@@ -252,6 +253,7 @@ class Ship {
     if (this.invincible    > 0) this.invincible    -= dt;
     if (this.shootCooldown > 0) this.shootCooldown -= dt;
     if (this.boost         > 0) this.boost         -= dt;
+    if (this.triple        > 0) this.triple        -= dt;
 
     const ROT   = 3.5;   // rad/s
     const DRAG   = 0.987;
@@ -278,6 +280,15 @@ class Ship {
     const NOSE = SKINS[currentSkin].nose;
     const ox = this.x + Math.cos(this.angle) * NOSE;
     const oy = this.y + Math.sin(this.angle) * NOSE;
+    if (this.triple > 0) {
+      const px = Math.cos(this.angle + Math.PI / 2) * 6;
+      const py = Math.sin(this.angle + Math.PI / 2) * 6;
+      return [
+        new Bullet(ox,        oy,        this.angle),
+        new Bullet(ox + px,   oy + py,   this.angle),
+        new Bullet(ox - px,   oy - py,   this.angle),
+      ];
+    }
     return [new Bullet(ox, oy, this.angle)];
   }
 
@@ -351,6 +362,7 @@ class Particle {
 // ── PowerUp (Velocidad) ───────────────────────────────────────────────────────
 class PowerUp {
   constructor(x, y) {
+    this.kind = 'boost';
     this.x = x;
     this.y = y;
     const angle = rand(0, Math.PI * 2);
@@ -396,6 +408,60 @@ class PowerUp {
     ctx.lineTo(-2, 0);
     ctx.lineTo(4, 8);
     ctx.stroke();
+
+    ctx.restore();
+  }
+}
+
+// ── PowerUp (Triple Shot) ─────────────────────────────────────────────────────
+class TriplePowerUp {
+  constructor(x, y) {
+    this.kind = 'triple';
+    this.x = x;
+    this.y = y;
+    const angle = rand(0, Math.PI * 2);
+    const speed = rand(25, 50);
+    this.vx = Math.cos(angle) * speed;
+    this.vy = Math.sin(angle) * speed;
+    this.radius    = 11;
+    this.rot       = 0;
+    this.rotSpeed  = rand(-1.5, 1.5);
+    this.dead      = false;
+  }
+
+  update(dt) {
+    this.x   = wrap(this.x + this.vx * dt, W);
+    this.y   = wrap(this.y + this.vy * dt, H);
+    this.rot += this.rotSpeed * dt;
+  }
+
+  draw() {
+    const pulse = 1 + Math.sin(performance.now() / 150) * 0.15;
+    ctx.save();
+    ctx.translate(this.x, this.y);
+    ctx.rotate(this.rot);
+
+    // Diamante magenta pulsante
+    ctx.strokeStyle = '#ff5ed4';
+    ctx.lineWidth   = 2;
+    ctx.lineJoin    = 'round';
+    ctx.beginPath();
+    ctx.moveTo(0, -this.radius * pulse);
+    ctx.lineTo(this.radius * pulse, 0);
+    ctx.lineTo(0, this.radius * pulse);
+    ctx.lineTo(-this.radius * pulse, 0);
+    ctx.closePath();
+    ctx.stroke();
+
+    // Tres líneas paralelas interiores (identidad del triple shot)
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth   = 1.5;
+    for (const off of [-4, 0, 4]) {
+      ctx.beginPath();
+      ctx.moveTo(-5, off);
+      ctx.lineTo( 5, off);
+      ctx.stroke();
+    }
 
     ctx.restore();
   }
@@ -504,7 +570,7 @@ function update(dt) {
     bullets.push(...ship.tryShoot());
   }
 
-  // Cambiar de skin (tecla C)
+// Cambiar de skin (tecla C)
   if (pressed('KeyC')) {
     currentSkin = (currentSkin + 1) % SKINS.length;
     saveSkin();
@@ -512,7 +578,8 @@ function update(dt) {
   }
   if (skinToast > 0) skinToast -= dt;
 
-  const prevBoost = ship.boost;
+  const prevBoost  = ship.boost;
+  const prevTriple = ship.triple;
   ship.update(dt);
   bullets.forEach(b => b.update(dt));
   asteroids.forEach(a => a.update(dt));
@@ -530,19 +597,24 @@ function update(dt) {
     meteorTimer = rand(10, 18);
   }
 
-  if (prevBoost > 0 && ship.boost <= 0)
+  if (prevBoost  > 0 && ship.boost  <= 0)
+    explode(ship.x, ship.y, 8);
+  if (prevTriple > 0 && ship.triple <= 0)
     explode(ship.x, ship.y, 8);
 
-  // Nave vs power-up (solo si no hay boost activo)
-  if (ship.boost <= 0) {
-    for (const p of powerups) {
-      if (!p.dead && dist(ship, p) < ship.radius + p.radius) {
-        ship.boost = 5;
-        p.dead = true;
-        explode(ship.x, ship.y, 12);
-        break;
-      }
+  // Nave vs power-up (boost y triple son independientes y apilables)
+  for (const p of powerups) {
+    if (p.dead || dist(ship, p) >= ship.radius + p.radius) continue;
+    if (p.kind === 'triple') {
+      if (ship.triple > 0) continue;       // no re-apilar el mismo
+      ship.triple = 5;
+    } else {
+      if (ship.boost > 0) continue;
+      ship.boost = 5;
     }
+    p.dead = true;
+    explode(ship.x, ship.y, 12);
+    break;
   }
   powerups = powerups.filter(p => !p.dead);
 
@@ -556,8 +628,11 @@ function update(dt) {
         score += a.points ?? POINTS[a.size];
         explode(a.x, a.y, a.special ? 18 : a.size * 5);
         newAsteroids.push(...a.split());
-        if (powerups.length === 0 && Math.random() < 0.12)
-          powerups.push(new PowerUp(a.x, a.y));
+        if (powerups.length === 0 && Math.random() < 0.12) {
+          powerups.push(Math.random() < 0.5
+            ? new PowerUp(a.x, a.y)
+            : new TriplePowerUp(a.x, a.y));
+        }
       }
     }
   }
@@ -619,6 +694,18 @@ function drawHUD() {
     const bx = W / 2 - BAR_W / 2, by = 38;
     const fill = (ship.boost / 5) * BAR_W;
     ctx.fillStyle   = '#00dcff';
+    ctx.fillRect(bx, by, fill, BAR_H);
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth   = 1;
+    ctx.strokeRect(bx - 0.5, by - 0.5, BAR_W + 1, BAR_H + 1);
+  }
+
+  // Barra de Triple Shot
+  if (ship.triple > 0) {
+    const BAR_W = 100, BAR_H = 6;
+    const bx = W / 2 - BAR_W / 2, by = 50;
+    const fill = (ship.triple / 5) * BAR_W;
+    ctx.fillStyle   = '#ff5ed4';
     ctx.fillRect(bx, by, fill, BAR_H);
     ctx.strokeStyle = '#fff';
     ctx.lineWidth   = 1;
