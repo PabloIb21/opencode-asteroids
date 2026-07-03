@@ -120,6 +120,7 @@ class Asteroid {
 
 // ── Ship ──────────────────────────────────────────────────────────────────────
 class Ship {
+  boost = 0;
   constructor() { this.reset(); }
 
   reset() {
@@ -139,9 +140,9 @@ class Ship {
     if (this.dead) return;
     if (this.invincible    > 0) this.invincible    -= dt;
     if (this.shootCooldown > 0) this.shootCooldown -= dt;
+    if (this.boost         > 0) this.boost         -= dt;
 
     const ROT   = 3.5;   // rad/s
-    const THRUST = 260;  // px/s²
     const DRAG   = 0.987;
 
     if (keys['ArrowLeft'])  this.angle -= ROT * dt;
@@ -149,8 +150,9 @@ class Ship {
 
     this.thrusting = !!keys['ArrowUp'];
     if (this.thrusting) {
-      this.vx += Math.cos(this.angle) * THRUST * dt;
-      this.vy += Math.sin(this.angle) * THRUST * dt;
+      const THRUST_BOOST = this.boost > 0 ? 520 : 260;
+      this.vx += Math.cos(this.angle) * THRUST_BOOST * dt;
+      this.vy += Math.sin(this.angle) * THRUST_BOOST * dt;
     }
 
     this.vx *= DRAG;
@@ -235,8 +237,61 @@ class Particle {
   }
 }
 
+// ── PowerUp (Velocidad) ───────────────────────────────────────────────────────
+class PowerUp {
+  constructor(x, y) {
+    this.x = x;
+    this.y = y;
+    const angle = rand(0, Math.PI * 2);
+    const speed = rand(25, 50);
+    this.vx = Math.cos(angle) * speed;
+    this.vy = Math.sin(angle) * speed;
+    this.radius    = 11;
+    this.rot       = 0;
+    this.rotSpeed  = rand(-1.5, 1.5);
+    this.dead      = false;
+  }
+
+  update(dt) {
+    this.x   = wrap(this.x + this.vx * dt, W);
+    this.y   = wrap(this.y + this.vy * dt, H);
+    this.rot += this.rotSpeed * dt;
+  }
+
+  draw() {
+    const pulse = 1 + Math.sin(performance.now() / 150) * 0.15;
+    ctx.save();
+    ctx.translate(this.x, this.y);
+    ctx.rotate(this.rot);
+
+    // Diamante cyan pulsante
+    ctx.strokeStyle = '#00dcff';
+    ctx.lineWidth   = 2;
+    ctx.lineJoin    = 'round';
+    ctx.beginPath();
+    ctx.moveTo(0, -this.radius * pulse);
+    ctx.lineTo(this.radius * pulse, 0);
+    ctx.lineTo(0, this.radius * pulse);
+    ctx.lineTo(-this.radius * pulse, 0);
+    ctx.closePath();
+    ctx.stroke();
+
+    // Rayo blanco interior
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth   = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(-4, -8);
+    ctx.lineTo(0, 0);
+    ctx.lineTo(-2, 0);
+    ctx.lineTo(4, 8);
+    ctx.stroke();
+
+    ctx.restore();
+  }
+}
+
 // ── Estado del juego ──────────────────────────────────────────────────────────
-let ship, bullets, asteroids, particles;
+let ship, bullets, asteroids, particles, powerups;
 let score, lives, level;
 let state;      // 'playing' | 'dead' | 'gameover'
 let deadTimer;
@@ -258,6 +313,7 @@ function initGame() {
   bullets   = [];
   asteroids = [];
   particles = [];
+  powerups  = [];
   score  = 0;
   lives  = 3;
   level  = 1;
@@ -269,6 +325,7 @@ function nextLevel() {
   level++;
   bullets   = [];
   particles = [];
+  powerups  = [];
   ship.reset();
   spawnAsteroids(3 + level);
 }
@@ -303,6 +360,8 @@ function update(dt) {
     particles.forEach(p => p.update(dt));
     particles = particles.filter(p => !p.dead);
     asteroids.forEach(a => a.update(dt));
+    powerups.forEach(p => p.update(dt));
+    powerups = powerups.filter(p => !p.dead);
     if (deadTimer <= 0) { state = 'playing'; ship.reset(); }
     return;
   }
@@ -312,13 +371,32 @@ function update(dt) {
     bullets.push(...ship.tryShoot());
   }
 
+  const prevBoost = ship.boost;
   ship.update(dt);
   bullets.forEach(b => b.update(dt));
   asteroids.forEach(a => a.update(dt));
   particles.forEach(p => p.update(dt));
+  powerups.forEach(p => p.update(dt));
 
   bullets   = bullets.filter(b => !b.dead);
   particles = particles.filter(p => !p.dead);
+  powerups  = powerups.filter(p => !p.dead);
+
+  if (prevBoost > 0 && ship.boost <= 0)
+    explode(ship.x, ship.y, 8);
+
+  // Nave vs power-up (solo si no hay boost activo)
+  if (ship.boost <= 0) {
+    for (const p of powerups) {
+      if (!p.dead && dist(ship, p) < ship.radius + p.radius) {
+        ship.boost = 5;
+        p.dead = true;
+        explode(ship.x, ship.y, 12);
+        break;
+      }
+    }
+  }
+  powerups = powerups.filter(p => !p.dead);
 
   // Bala vs asteroide
   const newAsteroids = [];
@@ -330,6 +408,8 @@ function update(dt) {
         score += POINTS[a.size];
         explode(a.x, a.y, a.size * 5);
         newAsteroids.push(...a.split());
+        if (powerups.length === 0 && Math.random() < 0.12)
+          powerups.push(new PowerUp(a.x, a.y));
       }
     }
   }
@@ -378,6 +458,18 @@ function drawHUD() {
   ctx.textAlign = 'center';
   ctx.fillText(`NIVEL ${level}`, W / 2, 26);
 
+  // Barra de Velocidad
+  if (ship.boost > 0) {
+    const BAR_W = 100, BAR_H = 6;
+    const bx = W / 2 - BAR_W / 2, by = 38;
+    const fill = (ship.boost / 5) * BAR_W;
+    ctx.fillStyle   = '#00dcff';
+    ctx.fillRect(bx, by, fill, BAR_H);
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth   = 1;
+    ctx.strokeRect(bx - 0.5, by - 0.5, BAR_W + 1, BAR_H + 1);
+  }
+
   for (let i = 0; i < lives; i++)
     drawLifeIcon(W - 16 - i * 22, 18);
 
@@ -399,6 +491,7 @@ function draw() {
 
   particles.forEach(p => p.draw());
   asteroids.forEach(a => a.draw());
+  powerups.forEach(p => p.draw());
   bullets.forEach(b => b.draw());
   ship.draw();
 
